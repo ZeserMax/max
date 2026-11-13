@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8"><title>🖼️ 在线图片 OCR（云端）</title>
+<meta charset="utf-8"><title>🖼️ 在线图片 OCR（纯前端）</title>
 <style>
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,sans-serif;
         margin:2rem;background:#fafafa;color:#333;}
@@ -17,12 +17,12 @@
        word-break:break-all;margin-top:1rem;}
   #preview{max-width:100%;margin-top:1rem;border:1px solid #ddd;}
 </style>
+<script src="https://unpkg.com/tesseract.js@v4.0.3/dist/tesseract.min.js"></script>
 </head>
 <body>
 <div class="box">
-  <h1>📄 在线图片 OCR（云端）</h1>
-  <p>选择图片 → 自动上传至云端 → 返回文字结果。</p>
-
+  <h1>📄 在线图片 OCR（纯前端）</h1>
+  <p>选择一张图片（PNG/JPG/GIF），浏览器会在本机直接完成文字识别并显示结果。</p>
   <input type="file" id="fileInput" accept="image/*">
   <button id="runBtn" disabled>🚀 开始识别</button>
 
@@ -41,24 +41,9 @@ const result    = document.getElementById('result');
 
 let selectedFile = null;
 
-// ---------- 文件选择 ----------
 fileInput.addEventListener('change', () => {
   const file = fileInput.files[0];
-  if (!file) {
-    runBtn.disabled = true;
-    preview.hidden = true;
-    return;
-  }
-
-  // 1 MB 大小上限（OcrSpace 免费版限制）
-  if (file.size > 1 * 1024 * 1024) {
-    status.textContent = '⚠️ 图片太大（>1 MB），请压缩后重试';
-    runBtn.disabled = true;
-    preview.hidden = true;
-    selectedFile = null;
-    return;
-  }
-
+  if (!file) { runBtn.disabled = true; preview.hidden = true; return; }
   selectedFile = file;
   const url = URL.createObjectURL(file);
   preview.src = url;
@@ -68,33 +53,60 @@ fileInput.addEventListener('change', () => {
   result.textContent = '';
 });
 
-// ---------- OCR 请求 ----------
+// Add paste event listener to handle clipboard images
+document.addEventListener('paste', (event) => {
+  const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item.type.startsWith('image/')) {
+      const file = item.getAsFile();
+      if (file) {
+        selectedFile = file;
+        const url = URL.createObjectURL(file);
+        preview.src = url;
+        preview.hidden = false;
+        runBtn.disabled = false;
+        status.textContent = '';
+        result.textContent = '';
+        // Optionally clear the file input value
+        fileInput.value = '';
+        break;
+      }
+    }
+  }
+});
+
 runBtn.addEventListener('click', async () => {
   if (!selectedFile) return;
   runBtn.disabled = true;
-  status.textContent = '⏳ 正在上传图片…';
+  status.textContent = '⏳ 正在读取图片…';
+  const img = new Image();
+  img.src = URL.createObjectURL(selectedFile);
+  await new Promise(r => img.onload = r);
 
-  const form = new FormData();
-  form.append('file', selectedFile);
+  status.textContent = '🧩 正在加载 OCR 引擎（首次可能稍慢）…';
+  const { createWorker } = Tesseract;
+  const worker = createWorker({
+    logger: m => {
+      if (m.status === 'recognizing text') {
+        status.textContent = `📊 识别中… ${Math.round(m.progress*100)}%`;
+      }
+    }
+  });
 
   try {
-    const resp = await fetch('/api/ocr', {method:'POST', body:form});
-    const data = await resp.json();
-
-    // 后端返回错误时直接展示细节
-    if (!resp.ok) {
-      status.textContent = `⚠️ OCR 错误: ${data.error || '未知错误'}`;
-      result.textContent = data.details ? `细节: ${JSON.stringify(data.details)}` : '';
-      return;
-    }
-
-    result.textContent = data.text || '(未检测到文字)';
-    status.textContent = data.text ? '✅ OCR 完成' : '⚠️ OCR 完成，但未检测到文字';
+    await worker.load();
+    await worker.loadLanguage('chi_sim+eng');
+    await worker.initialize('chi_sim');
+    const { data } = await worker.recognize(selectedFile);
+    result.textContent = data.text.trim() || '(未检测到文字)';
+    status.textContent = '✅ 识别完成';
   } catch (e) {
     console.error(e);
-    status.textContent = `❌ 请求失败: ${e.message}`;
-    result.textContent = '';
+    status.textContent = '❌ 识别出错，请打开浏览器控制台查看详情';
+    result.textContent = e.message;
   } finally {
+    await worker.terminate();
     runBtn.disabled = false;
   }
 });
