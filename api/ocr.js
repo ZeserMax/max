@@ -34,7 +34,7 @@ module.exports = async (req, res) => {
     const FormData = require("form-data");
     const formData = new FormData();
     formData.append("apikey", OCR_API_KEY);
-    // ✅ 正确的语言写法：逗号分隔，而不是 “+”
+    // ✅ 正确的语言写法：逗号分隔（不使用 +），例如 chs,eng
     formData.append("language", "chs,eng");
     // 将 Buffer 直接作为文件上传，保留原始文件名
     formData.append("file", fileBuffer, {
