@@ -1,3 +1,8 @@
+# 确保在工作区根目录
+cd /workspace
+
+# 1️⃣ 创建前端页面（命名为 index.html，根路径直接访问）
+cat > index.html <<'EOF'
 <!doctype html>
 <html lang="zh-CN">
 <head>
@@ -67,7 +72,7 @@ runBtn.addEventListener('click', async () => {
       body: form,
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();   // { "text": "…" }
+    const data = await resp.json();   // { text: "…" }
     result.textContent = data.text || '(未检测到文字)';
     status.textContent = data.text ? '✅ OCR 完成' : '⚠️ OCR 完成，但未检测到文字';
   } catch (e) {
@@ -81,3 +86,120 @@ runBtn.addEventListener('click', async () => {
 </script>
 </body>
 </html>
+EOF
+
+# 2️⃣ 创建后端函数目录并写入 ocr.js
+mkdir -p api
+cat > api/ocr.js <<'EOF'
+/*******************************************************
+ * Serverless Function – 负责接收前端上传的图片,
+ * 调用 OcrSpace 在线 OCR API，返回识别文字。
+ *
+ * 已把您的 OcrSpace 免费 API Key 嵌入：
+ *   const OCR_API_KEY = "K8514202439429488957";
+ *******************************************************/
+const OCR_API_KEY = "K8514202439429488957";
+
+module.exports = async (req, res) => {
+  // 只接受 POST 请求
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method Not Allowed" });
+    return;
+  }
+
+  // -------- 解析 multipart/form-data (formidable) --------
+  const formidable = require("formidable");
+  const form = new formidable.IncomingForm();
+
+  form.parse(req, async (err, fields, files) => {
+    if (err) {
+      console.error("Form parse error:", err);
+      res.status(400).json({ error: "Invalid form data" });
+      return;
+    }
+
+    const file = files.file;   // 前端字段名是 "file"
+    if (!file) {
+      res.status(400).json({ error: "No file uploaded" });
+      return;
+    }
+
+    // 读取二进制内容
+    const fs = require("fs");
+    const fileBuffer = fs.readFileSync(file.filepath);
+
+    // -------- 调用 OcrSpace API --------
+    const fetch = require("node-fetch");
+    const boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW";
+    const crlf = "\r\n";
+
+    // 手动构造 multipart/form-data 包体
+    const multipartBody = Buffer.concat([
+      Buffer.from(
+        [
+          `--${boundary}`,
+          `Content-Disposition: form-data; name="apikey"`,
+          "",
+          OCR_API_KEY,
+          `--${boundary}`,
+          `Content-Disposition: form-data; name="language"`,
+          "",
+          "chs+eng",                     // 中文 + 英文，可根据需要自行修改
+          `--${boundary}`,
+          `Content-Disposition: form-data; name="file"; filename="${file.originalFilename}"`,
+          "Content-Type: application/octet-stream",
+          "",
+        ].join(crlf)
+      ),
+      fileBuffer,
+      Buffer.from(`${crlf}--${boundary}--${crlf}`),
+    ]);
+
+    try {
+      const response = await fetch("https://api.ocr.space/parse/image", {
+        method: "POST",
+        headers: {
+          "Content-Type": `multipart/form-data; boundary=${boundary}`,
+          "User-Agent": "ocr-online-function",
+        },
+        body: multipartBody,
+        timeout: 30000, // 30 秒超时
+      });
+
+      const json = await response.json();
+
+      // -------- 处理 OcrSpace 返回结果 --------
+      if (json.IsErroredOnProcessing) {
+        console.error("OcrSpace error:", json.ErrorMessage);
+        res
+          .status(502)
+          .json({ error: "OcrSpace processing error", details: json.ErrorMessage });
+        return;
+      }
+
+      const parsedText = (json.ParsedResults?.[0]?.ParsedText || "").trim();
+      res.status(200).json({ text: parsedText });
+    } catch (e) {
+      console.error("Fetch to OcrSpace failed:", e);
+      res.status(502).json({ error: "Failed to call OcrSpace", details: e.message });
+    }
+  });
+};
+EOF
+
+# 3️⃣ 声明后端依赖（formidable、node-fetch）
+cat > package.json <<'EOF'
+{
+  "name": "ocr-online",
+  "version": "1.0.0",
+  "main": "api/ocr.js",
+  "dependencies": {
+    "formidable": "^2.1.1",
+    "node-fetch": "^2.6.7"
+  }
+}
+EOF
+
+# 4️⃣ 检查整个项目结构（确认文件已生成）
+echo "=== 项目结构 ==="
+ls -R
