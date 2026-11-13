@@ -82,31 +82,3 @@ module.exports = async (req, res) => {
   });
 };
 
-// … 之前的代码保持不变 …
-
-      const response = await fetch("https://api.ocr.space/parse/image", {
-        method: "POST",
-        headers: {
-          "Content-Type": `multipart/form-data; boundary=${boundary}`,
-          "User-Agent": "ocr-online-function",
-        },
-        body: multipartBody,
-        timeout: 30000,
-      });
-
-      const json = await response.json();
-
-      // **新增：打印完整响应供调试**
-      console.log("=== OcrSpace raw response ===");
-      console.log(JSON.stringify(json, null, 2));
-
-      // OcrSpace 错误处理
-      if (json.IsErroredOnProcessing) {
-        console.error("OcrSpace error:", json.ErrorMessage);
-        // 直接把错误信息回给前端，便于定位
-        res.status(502).json({error:"OcrSpace processing error",details:json.ErrorMessage});
-        return;
-      }
-
-      const parsedText = (json.ParsedResults?.[0]?.ParsedText || "").trim();
-      res.status(200).json({text: parsedText});
