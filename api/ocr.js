@@ -1,4 +1,4 @@
-// api/ocr.js – OcrSpace 调用（使用 form-data 生成正确的 multipart）
+// api/ocr.js – OcrSpace 调用（使用 form-data 自动生成正确的 multipart）
 
 const OCR_API_KEY = "K8514202439429488957"; // 您的 OcrSpace API Key
 
@@ -33,9 +33,9 @@ module.exports = async (req, res) => {
     const FormData = require("form-data");
     const formData = new FormData();
     formData.append("apikey", OCR_API_KEY);
-    // 正确的语言写法：使用逗号分隔，而不是 “+”
+    // ✅ 正确的语言写法：逗号分隔，而不是 “+”
     formData.append("language", "chs,eng");
-    // 直接把 Buffer 作为文件上传，保留原文件名
+    // 直接把 Buffer 作为文件上传，保留原始文件名
     formData.append("file", fileBuffer, {
       filename: file.originalFilename,
       contentType: "application/octet-stream",
@@ -56,7 +56,7 @@ module.exports = async (req, res) => {
 
       const json = await response.json();
 
-      // 在 Render 日志里打印完整响应，方便调试
+      // 在 Render 日志里打印完整响应，便于调试
       console.log("=== OcrSpace raw response ===");
       console.log(JSON.stringify(json, null, 2));
 
