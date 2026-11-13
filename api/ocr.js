@@ -3,7 +3,7 @@
 const OCR_API_KEY = "K8514202439429488957"; // 您的 OcrSpace API Key
 
 module.exports = async (req, res) => {
-  // 只接受 POST
+  // 只接受 POST 请求
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method Not Allowed" });
     return;
@@ -29,12 +29,13 @@ module.exports = async (req, res) => {
     const fs = require("fs");
     const fileBuffer = fs.readFileSync(file.filepath);
 
-    // ---------- 这里使用 form-data ----------
+    // ---------- 使用 form-data 自动构造 multipart ----------
     const FormData = require("form-data");
     const formData = new FormData();
     formData.append("apikey", OCR_API_KEY);
-    formData.append("language", "chs+eng");
-    // 直接把 Buffer 作为文件上传，保留原始文件名
+    // 正确的语言写法：使用逗号分隔，而不是 “+”
+    formData.append("language", "chs,eng");
+    // 直接把 Buffer 作为文件上传，保留原文件名
     formData.append("file", fileBuffer, {
       filename: file.originalFilename,
       contentType: "application/octet-stream",
@@ -45,7 +46,7 @@ module.exports = async (req, res) => {
       const response = await fetch("https://api.ocr.space/parse/image", {
         method: "POST",
         headers: {
-          // form-data 自动生成合适的 Content-Type（含 boundary）
+          // form-data 会自动生成合适的 Content-Type（包含 boundary）
           ...formData.getHeaders(),
           "User-Agent": "ocr-online-function",
         },
@@ -55,11 +56,11 @@ module.exports = async (req, res) => {
 
       const json = await response.json();
 
-      // 在 Render 日志里打印完整返回，便于调试
+      // 在 Render 日志里打印完整响应，方便调试
       console.log("=== OcrSpace raw response ===");
       console.log(JSON.stringify(json, null, 2));
 
-      // OcrSpace 错误（配额、文件大小、API Key 等）
+      // OcrSpace 报错（配额、文件大小、语言、API Key 等）
       if (json.IsErroredOnProcessing) {
         console.error("OcrSpace error:", json.ErrorMessage);
         res
@@ -68,7 +69,7 @@ module.exports = async (req, res) => {
         return;
       }
 
-      // 正常返回文字（如果没有文字则返回空串）
+      // 正常情况下返回解析后的文字（可能为空串）
       const parsedText = (json.ParsedResults?.[0]?.ParsedText || "").trim();
       res.status(200).json({ text: parsedText });
     } catch (e) {
