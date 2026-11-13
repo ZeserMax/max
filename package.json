@@ -2,6 +2,9 @@
   "name": "ocr-online",
   "version": "1.0.0",
   "main": "api/ocr.js",
+  "scripts": {
+    "start": "node api/ocr.js & npx http-server . -p $PORT"
+  },
   "dependencies": {
     "formidable": "^2.1.1",
     "node-fetch": "^2.6.7"
