@@ -1,16 +1,16 @@
-// api/ocr.js – OcrSpace 调用（使用 form-data 以避免 multipart 构造错误）
-// 将此文件放在项目根目录的 `api` 文件夹下，`server.js` 会把 POST /api/ocr 请求转发到这里
+// api/ocr.js – OcrSpace 调用（使用 form-data，已去掉 language 参数）
+// 放在项目根目录的 `api` 文件夹下，`server.js` 会把 POST /api/ocr 请求转发到这里
 
 const OCR_API_KEY = "K8514202439429488957"; // 您的 OcrSpace API Key
 
 module.exports = async (req, res) => {
-  // 只接受 POST 请求
+  // ------------------- 只接受 POST -------------------
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method Not Allowed" });
     return;
   }
 
-  // 使用 formidable 解析 multipart/form-data（前端发送的是 FormData）
+  // ------------------- 解析 multipart/form-data -------------------
   const formidable = require("formidable");
   const form = new formidable.IncomingForm();
 
@@ -30,13 +30,12 @@ module.exports = async (req, res) => {
     const fs = require("fs");
     const fileBuffer = fs.readFileSync(file.filepath);
 
-    // 使用 form-data 包来构建正确的 multipart body
+    // ------------------- 用 form-data 构造请求体 -------------------
     const FormData = require("form-data");
     const formData = new FormData();
     formData.append("apikey", OCR_API_KEY);
-    // ✅ 正确的语言写法：逗号分隔（不使用 +），例如 chs,eng
-    formData.append("language", "chs,eng");
-    // 将 Buffer 直接作为文件上传，保留原始文件名
+    // **已删除 language 参数** → OcrSpace 将使用自动语言检测 (auto)
+    // formData.append("language", "chs,eng");   // ← 这里注释掉
     formData.append("file", fileBuffer, {
       filename: file.originalFilename,
       contentType: "application/octet-stream",
@@ -57,11 +56,11 @@ module.exports = async (req, res) => {
 
       const json = await response.json();
 
-      // 在 Render 日志里打印完整响应，便于调试
+      // ------------------- 日志（方便调试） -------------------
       console.log("=== OcrSpace raw response ===");
       console.log(JSON.stringify(json, null, 2));
 
-      // 如果 OcrSpace 报错（如配额、文件大小、API Key 等）
+      // ------------------- 处理 OcrSpace 错误 -------------------
       if (json.IsErroredOnProcessing) {
         console.error("OcrSpace error:", json.ErrorMessage);
         res
@@ -70,7 +69,7 @@ module.exports = async (req, res) => {
         return;
       }
 
-      // 正常情况下返回解析后的文字（可能为空串）
+      // ------------------- 成功返回文字 -------------------
       const parsedText = (json.ParsedResults?.[0]?.ParsedText || "").trim();
       res.status(200).json({ text: parsedText });
     } catch (e) {
