@@ -1,6 +1,6 @@
-// api/ocr.js – OcrSpace 调用封装
-// 把您的 OcrSpace API Key 填在下面
-const OCR_API_KEY = "K8514202439429488957";
+// api/ocr.js – OcrSpace 调用（使用 form-data 生成正确的 multipart）
+
+const OCR_API_KEY = "K8514202439429488957"; // 您的 OcrSpace API Key
 
 module.exports = async (req, res) => {
   // 只接受 POST
@@ -9,7 +9,7 @@ module.exports = async (req, res) => {
     return;
   }
 
-  // 解析 multipart/form-data（使用 formidable）
+  // 解析前端的 multipart/form-data（只取文件本身）
   const formidable = require("formidable");
   const form = new formidable.IncomingForm();
 
@@ -29,67 +29,51 @@ module.exports = async (req, res) => {
     const fs = require("fs");
     const fileBuffer = fs.readFileSync(file.filepath);
 
-    // 调用 OcrSpace API
+    // ---------- 这里使用 form-data ----------
+    const FormData = require("form-data");
+    const formData = new FormData();
+    formData.append("apikey", OCR_API_KEY);
+    formData.append("language", "chs+eng");
+    // 直接把 Buffer 作为文件上传，保留原始文件名
+    formData.append("file", fileBuffer, {
+      filename: file.originalFilename,
+      contentType: "application/octet-stream",
+    });
+
     const fetch = require("node-fetch");
-    const boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW";
-    const crlf = "\r\n";
-
-    const multipartBody = Buffer.concat([
-      Buffer.from(
-        [
-          `--${boundary}`,
-          `Content-Disposition: form-data; name="apikey"`,
-          "",
-          OCR_API_KEY,
-          `--${boundary}`,
-          `Content-Disposition: form-data; name="language"`,
-          "",
-          "chs+eng",
-          `--${boundary}`,
-          `Content-Disposition: form-data; name="file"; filename="${file.originalFilename}"`,
-          "Content-Type: application/octet-stream",
-          "",
-        ].join(crlf)
-      ),
-      fileBuffer,
-      Buffer.from(`${crlf}--${boundary}--${crlf}`),
-    ]);
-
     try {
       const response = await fetch("https://api.ocr.space/parse/image", {
         method: "POST",
         headers: {
-          "Content-Type": `multipart/form-data; boundary=${boundary}`,
+          // form-data 自动生成合适的 Content-Type（含 boundary）
+          ...formData.getHeaders(),
           "User-Agent": "ocr-online-function",
         },
-        body: multipartBody,
+        body: formData,
         timeout: 30000,
       });
 
       const json = await response.json();
 
-      // **调试打印** – Render 日志里可以看到完整返回体
+      // 在 Render 日志里打印完整返回，便于调试
       console.log("=== OcrSpace raw response ===");
       console.log(JSON.stringify(json, null, 2));
 
-      // OcrSpace 错误处理
+      // OcrSpace 错误（配额、文件大小、API Key 等）
       if (json.IsErroredOnProcessing) {
         console.error("OcrSpace error:", json.ErrorMessage);
-        // 把错误直接返回前端，让 UI 能显示具体原因
         res
           .status(502)
           .json({ error: "OcrSpace processing error", details: json.ErrorMessage });
         return;
       }
 
-      // 读取文字（如果没有则返回空串）
+      // 正常返回文字（如果没有文字则返回空串）
       const parsedText = (json.ParsedResults?.[0]?.ParsedText || "").trim();
       res.status(200).json({ text: parsedText });
     } catch (e) {
       console.error("Fetch to OcrSpace failed:", e);
-      res
-        .status(502)
-        .json({ error: "Failed to call OcrSpace", details: e.message });
+      res.status(502).json({ error: "Failed to call OcrSpace", details: e.message });
     }
   });
 };
