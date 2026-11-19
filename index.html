@@ -115,7 +115,8 @@
 <body>
   <div class="box">
     <h1>📄 在线图片 OCR（云端）</h1>
-    <p>选择图片 → 自动上传 → 返回文字结果</p>
+    <p>选择图片 → 自动上传 → 返回文字结果<br>
+       或者直接 **粘贴** 剪贴板中的图片</p>
 
     <input type="file" id="fileInput" accept="image/*">
     <button id="runBtn" disabled>🚀 开始识别</button>
@@ -133,7 +134,18 @@
     const preview   = document.getElementById('preview');
     const status    = document.getElementById('status');
     const result    = document.getElementById('result');
-    let selectedFile = null;
+    let selectedFile = null;   // 当前准备识别的 File 对象
+
+    // ---------- 共用的“准备完毕”逻辑 ----------
+    function setReady(file) {
+      selectedFile = file;
+      preview.src = URL.createObjectURL(file);
+      preview.hidden = false;
+      runBtn.disabled = false;
+      status.textContent = '';
+      status.className = '';
+      result.textContent = '';
+    }
 
     // ---------- 文件选择 ----------
     fileInput.addEventListener('change', () => {
@@ -143,7 +155,37 @@
         preview.hidden = true;
         return;
       }
-      // 1 MB 限制（OcrSpace 免费版）
+      handleNewFile(file);
+    });
+
+    // ---------- 粘贴图片 ----------
+    // 监听整个文档的 paste 事件
+    document.addEventListener('paste', (e) => {
+      // Chrome/Edge/Firefox 在 e.clipboardData.items 中提供图片项
+      const items = (e.clipboardData || window.clipboardData).items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.indexOf('image') !== -1) {
+          // 把 ClipboardItem 转成 File（Blob）对象
+          const blob = item.getAsFile();
+          if (blob) {
+            // 为了让后端接受与 file input 相同的字段名，手动创建一个 File
+            const filename = `clipboard-${Date.now()}.png`; // 默认 png 扩展
+            const file = new File([blob], filename, { type: blob.type });
+            handleNewFile(file);
+            // 防止默认粘贴到页面上出现图片
+            e.preventDefault();
+          }
+          break; // 只取第一个图片
+        }
+      }
+    });
+
+    // ---------- 统一的文件校验 & UI 更新 ----------
+    function handleNewFile(file) {
+      // 1 MB 大小限制（OcrSpace 免费版）
       if (file.size > 1 * 1024 * 1024) {
         status.textContent = '⚠️ 图片太大（>1 MB），请压缩后重试';
         status.className = 'warning';
@@ -152,14 +194,8 @@
         selectedFile = null;
         return;
       }
-      selectedFile = file;
-      preview.src = URL.createObjectURL(file);
-      preview.hidden = false;
-      runBtn.disabled = false;
-      status.textContent = '';
-      status.className = '';
-      result.textContent = '';
-    });
+      setReady(file);
+    }
 
     // ---------- OCR 请求 ----------
     runBtn.addEventListener('click', async () => {
