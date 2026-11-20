@@ -36,20 +36,21 @@ function isMetadataOnly(text) {
 
 /**
  * 依次尝试一组 LibreTranslate 公共实例。
- * 第一个成功返回译文即结束；若全部失败抛异常进入回退。
+ * 第一个成功返回译文即结束；若全部失败抛异常。
  */
 async function tryLibreTranslate(originalText) {
   const fetch = require("node-fetch");
 
-  // ① 读取环境变量自定义实例（最高优先级）
-  // ② 预置几个公开可达的实例（顺序从最可能可达到最可能被墙）
+  // ① 环境变量自定义实例（最高优先级）
   const envUrl = process.env.LIBRE_TRANSLATE_URL;
+
+  // ② 预置几个公开可达的实例（从最常用到备用）
   const predefined = [
     "https://libretranslate.com/translate",
     "https://translate.astian.org/translate",
-    "https://translate.argosopentech.com/translate",
-    // 如有需要，可再自行追加其他公开实例
+    "https://translate.argosopentech.com/translate"
   ];
+
   const urls = envUrl ? [envUrl, ...predefined] : predefined;
 
   for (const url of urls) {
@@ -59,23 +60,22 @@ async function tryLibreTranslate(originalText) {
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json",
-          // 部分实例在 301/302 时需要 User-Agent 才会跟随
-          "User-Agent": "ocr-translate-client",
+          // 某些实例在 301/302 时需要 User-Agent 才会跟随
+          "User-Agent": "ocr-translate-client"
         },
         body: JSON.stringify({
           q: originalText,
           source: "auto",
           target: "zh",
-          format: "text",
+          format: "text"
         }),
-        timeout: 30000,
+        timeout: 30000
       });
 
       const ct = resp.headers.get("content-type") || "";
       if (!ct.includes("application/json")) {
-        // 很可能返回了 HTML（被拦截），直接尝试下一个实例
         console.warn(`LibreTranslate ${url} 返回非 JSON（Content-Type: ${ct})`);
-        continue;
+        continue; // 尝试下一个实例
       }
 
       const data = await resp.json();
@@ -83,7 +83,6 @@ async function tryLibreTranslate(originalText) {
         return data.translatedText || data.translation;
       }
 
-      // 如果返回 JSON 但没有译文字段，视为失败继续尝试
       console.warn(`LibreTranslate ${url} 未返回译文字段`, data);
     } catch (e) {
       console.warn(`LibreTranslate ${url} 调用异常:`, e.message);
@@ -91,63 +90,22 @@ async function tryLibreTranslate(originalText) {
     }
   }
 
-  // 若走到这里，说明所有 LibreTranslate 实例均不可用
+  // 所有实例均不可用
   throw new Error("All LibreTranslate instances failed");
 }
 
 /**
- * MyMemory 免费翻译（配额极低，仅作最后兜底）。
- * 当配额用完时会返回形如 “YOU USED ALL AVAILABLE FREE TRANSLATIONS …”
- * 我们在捕获后返回一段提示信息，供前端自行提示用户。
+ * 主翻译入口——只使用 LibreTranslate。
+ * 若所有实例均失效，则返回 `null`（前端可自行显示 “翻译不可用”）。
  */
-async function tryMyMemory(originalText) {
-  const fetch = require("node-fetch");
-  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(
-    originalText
-  )}&langpair=en|zh-CN`;
-
-  const resp = await fetch(url, {
-    method: "GET",
-    headers: { Accept: "application/json" },
-    timeout: 30000,
-  });
-
-  const data = await resp.json();
-
-  // MyMemory 在配额耗尽时会把提示放在 responseData.translatedText
-  if (data && data.responseData && data.responseData.translatedText) {
-    const txt = data.responseData.translatedText;
-    if (/YOU USED ALL AVAILABLE FREE TRANSLATIONS/.test(txt)) {
-      // 把配额耗尽的提示直接返回，让调用方显示给用户
-      return `【翻译服务配额已用尽】${txt}`;
-    }
-    return txt;
-  }
-
-  console.warn("MyMemory 未返回译文", data);
-  return null;
-}
-
-// ---------- 主翻译入口（先 LibreTranslate → 再 MyMemory） ----------
 async function translateToChinese(originalText) {
-  // 1️⃣ 先尝试多实例 LibreTranslate
   try {
     return await tryLibreTranslate(originalText);
   } catch (e) {
-    console.warn("所有 LibreTranslate 实例均不可用，准备使用 MyMemory 兜底:", e.message);
+    console.warn("LibreTranslate 完全不可用，返回 null:", e.message);
+    return null;
   }
-
-  // 2️⃣ MyMemory 兜底（可能会因为配额耗尽而返回提醒）
-  try {
-    const mmResult = await tryMyMemory(originalText);
-    if (mmResult) return mmResult;
-  } catch (e) {
-    console.error("MyMemory 调用异常:", e);
-  }
-
-  // 3️⃣ 若仍然没有译文，返回 null
-  return null;
-};
+}
 
 module.exports = async (req, res) => {
   // ------------------- 只接受 POST -------------------
@@ -184,7 +142,7 @@ module.exports = async (req, res) => {
     // formData.append("language", "chs,eng");
     formData.append("file", fileBuffer, {
       filename: file.originalFilename,
-      contentType: "application/octet-stream",
+      contentType: "application/octet-stream"
     });
 
     const fetch = require("node-fetch");
@@ -192,12 +150,12 @@ module.exports = async (req, res) => {
       const response = await fetch("https://api.ocr.space/parse/image", {
         method: "POST",
         headers: {
-          // form-data 会自动生成合适的 Content‑Type（包含 boundary）
+          // form-data 会自动生成合适的 Content-Type（包含 boundary）
           ...formData.getHeaders(),
-          "User-Agent": "ocr-online-function",
+          "User-Agent": "ocr-online-function"
         },
         body: formData,
-        timeout: 30000,
+        timeout: 30000
       });
 
       const json = await response.json();
@@ -215,10 +173,10 @@ module.exports = async (req, res) => {
         return;
       }
 
-      // ------------------- 解析文字、过滤元信息 -------------------
+      // ------------------- 提取文字并过滤元信息 -------------------
       const rawParsed = (json.ParsedResults?.[0]?.ParsedText || "").trim();
       const isMeta = isMetadataOnly(rawParsed);
-      const parsedText = isMeta ? "" : rawParsed; // 元信息视作空文字
+      const parsedText = isMeta ? "" : rawParsed; // 若是元信息则视作空文字
 
       // ------------------- 翻译（若文字为空直接返回 null） -------------------
       let chinese = null;
@@ -229,7 +187,7 @@ module.exports = async (req, res) => {
       res.status(200).json({
         // 若是元信息，这里返回空字符串，前端可以自行决定是否展示
         original: parsedText,
-        chinese,
+        chinese
       });
     } catch (e) {
       console.error("Fetch to OcrSpace failed:", e);
