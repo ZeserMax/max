@@ -8,43 +8,68 @@
 
 const OCR_API_KEY = process.env.OCR_API_KEY || "K8514202439429488957"; // 您的 OcrSpace API Key
 
-// ---------- 翻译函数（优先 LibreTranslate → 退回 MyMemory） ----------
+/**
+ * 判断字符串是否看起来像 OCR 返回的“元信息 JSON”。
+ * 这类内容通常类似：
+ *   {"OCRExitCode":1,"IsErroredOnProcessing":false,...}
+ * 若是，则认为没有有效文字可翻译。
+ */
+function isMetadataOnly(text) {
+  if (!text) return true;
+  const trimmed = text.trim();
+  // 开头是 { 或 [ 的可能是 JSON，进一步检查关键字段
+  if (/^[\{\[]/.test(trimmed)) {
+    const lower = trimmed.toLowerCase();
+    if (
+      lower.includes('"ocrexitcode"') ||
+      lower.includes('"iserroredonprocessing"') ||
+      lower.includes('searchablepdfurl')
+    ) {
+      return true;
+    }
+  }
+  // 有时 OcrSpace 把 JSON 当成字符串返回，出现 \"OCRExitCode\" 等转义形式
+  if (/\\\"ocrexitcode\\\"/.test(trimmed)) return true;
+  return false;
+}
+
+// ---------- 翻译函数（优先 LibreTranslate → 回退 MyMemory） ----------
 async function translateToChinese(originalText) {
-  // 统一使用 node-fetch
   const fetch = require("node-fetch");
 
-  // LibreTranslate 地址（可通过 .env 覆盖）
-  const libreUrl = process.env.LIBRE_TRANSLATE_URL ||
-    "https://translate.argosopentech.com/translate";
+  // 默认使用可在大多数云平台访问的 public LibreTranslate 实例
+  const defaultLibre = "https://libretranslate.com/translate";
+  const libreUrl = process.env.LIBRE_TRANSLATE_URL || defaultLibre;
 
-  // ---------- 1️⃣ 试用 LibreTranslate ----------
+  // ---------- 1️⃣ 先尝试 LibreTranslate ----------
   try {
     const resp = await fetch(libreUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Accept": "application/json",
+        // 某些公共实例会返回 301/302，需要一个 User‑Agent 才会跟随
+        "User-Agent": "ocr-translate-client",
       },
       body: JSON.stringify({
         q: originalText,
-        source: "auto",   // 自动检测源语言
-        target: "zh",     // 目标语言：中文
+        source: "auto",
+        target: "zh",
         format: "text",
       }),
       timeout: 30000,
     });
 
-    // 有时受限网络会返回 HTML 页面，需要检测 Content‑Type
+    // 检查是否真的返回 JSON（有的受限网络会返回 HTML 页面）
     const ct = resp.headers.get("content-type") || "";
     if (ct.includes("application/json")) {
       const data = await resp.json();
-      // LibreTranslate 可能返回 `translatedText`（新版）或 `translation`（旧版）
       if (data && (data.translatedText || data.translation)) {
         return data.translatedText || data.translation;
       }
     }
 
-    // 若返回的不是 JSON，抛出异常进入回退流程
+    // 不是 JSON → 抛异常进入回退流程
     throw new Error("LibreTranslate returned non‑JSON");
   } catch (e) {
     console.warn(
@@ -54,8 +79,7 @@ async function translateToChinese(originalText) {
   }
 
   // ---------- 2️⃣ 回退到 MyMemory 免费翻译 ----------
-  // MyMemory API 文档: https://mymemory.translated.net/doc/spec.php
-  // 注意：免费版有频率限制，适合作为兜底方案
+  // 文档：https://mymemory.translated.net/doc/spec.php
   try {
     const myMemoryUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(
       originalText
@@ -75,7 +99,7 @@ async function translateToChinese(originalText) {
     console.error("MyMemory 翻译也失败了：", e);
     return null;
   }
-}
+};
 
 module.exports = async (req, res) => {
   // ------------------- 只接受 POST -------------------
@@ -104,12 +128,12 @@ module.exports = async (req, res) => {
     const fs = require("fs");
     const fileBuffer = fs.readFileSync(file.filepath);
 
-    // ------------------- 用 form-data 构造请求体 -------------------
+    // ------------------- 用 form-data 构造 OcrSpace 请求体 -------------------
     const FormData = require("form-data");
     const formData = new FormData();
     formData.append("apikey", OCR_API_KEY);
-    // **已删除 language 参数** → OcrSpace 将使用自动语言检测 (auto)
-    // formData.append("language", "chs,eng");   // ← 这里注释掉
+    // 已去掉 language 参数 → OcrSpace 会自行检测
+    // formData.append("language", "chs,eng");
     formData.append("file", fileBuffer, {
       filename: file.originalFilename,
       contentType: "application/octet-stream",
@@ -120,7 +144,7 @@ module.exports = async (req, res) => {
       const response = await fetch("https://api.ocr.space/parse/image", {
         method: "POST",
         headers: {
-          // form-data 会自动生成合适的 Content-Type（包含 boundary）
+          // form-data 会自动生成合适的 Content‑Type（包含 boundary）
           ...formData.getHeaders(),
           "User-Agent": "ocr-online-function",
         },
@@ -143,10 +167,22 @@ module.exports = async (req, res) => {
         return;
       }
 
-      // ------------------- 成功返回文字并翻译 -------------------
-      const parsedText = (json.ParsedResults?.[0]?.ParsedText || "").trim();
-      const chinese = await translateToChinese(parsedText);
-      res.status(200).json({ original: parsedText, chinese });
+      // ------------------- 提取文字并判断是否是元信息 -------------------
+      const rawParsed = (json.ParsedResults?.[0]?.ParsedText || "").trim();
+      const isMeta = isMetadataOnly(rawParsed);
+      const parsedText = isMeta ? "" : rawParsed; // 若是元信息则当作空文字
+
+      // ------------------- 翻译（若文字为空直接返回 null） -------------------
+      let chinese = null;
+      if (parsedText) {
+        chinese = await translateToChinese(parsedText);
+      }
+
+      res.status(200).json({
+        // 若是元信息，这里返回空字符串，前端可自行决定是否展示
+        original: parsedText,
+        chinese,
+      });
     } catch (e) {
       console.error("Fetch to OcrSpace failed:", e);
       res.status(502).json({ error: "Failed to call OcrSpace", details: e.message });
