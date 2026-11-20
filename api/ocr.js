@@ -1,9 +1,7 @@
 // api/ocr.js – OcrSpace 调用（使用 form-data，已去掉 language 参数）
 // 放在项目根目录的 `api` 文件夹下，`server.js` 会把 POST /api/ocr 请求转发到这里
 
-require('dotenv').config(); // 加载 .env 中的环境变量
-
-// OCR 使用的 API Key（可在 .env 中覆盖）
+require('dotenv').config();                     // 加载 .env 中的环境变量
 const OCR_API_KEY = process.env.OCR_API_KEY || "K8514202439429488957";
 
 /**
@@ -12,7 +10,7 @@ const OCR_API_KEY = process.env.OCR_API_KEY || "K8514202439429488957";
  * - 如需自建实例，请在 .env 中设置 LIBRE_TRANSLATE_URL
  *
  * @param {string} originalText 需要翻译的原始文字
- * @returns {Promise<string|null>} 翻译后的中文，或在出错时返回 null
+ * @returns {Promise<string|null>} 中文译文，或出错时返回 null
  */
 async function translateToChinese(originalText) {
   const libreUrl = process.env.LIBRE_TRANSLATE_URL || "https://libretranslate.de/translate";
@@ -41,8 +39,7 @@ async function translateToChinese(originalText) {
 module.exports = async (req, res) => {
   // ------------------- 只接受 POST -------------------
   if (req.method !== "POST") {
-    res.status(405).json({ error: "Method Not Allowed" });
-    return;
+    return res.status(405).json({ error: "Method Not Allowed" });
   }
 
   // ------------------- 解析 multipart/form-data -------------------
@@ -52,14 +49,12 @@ module.exports = async (req, res) => {
   form.parse(req, async (err, fields, files) => {
     if (err) {
       console.error("Form parse error:", err);
-      res.status(400).json({ error: "Invalid form data" });
-      return;
+      return res.status(400).json({ error: "Invalid form data" });
     }
 
     const file = files.file; // 前端字段名必须是 "file"
     if (!file) {
-      res.status(400).json({ error: "No file uploaded" });
-      return;
+      return res.status(400).json({ error: "No file uploaded" });
     }
 
     const fs = require("fs");
@@ -81,7 +76,6 @@ module.exports = async (req, res) => {
       const response = await fetch("https://api.ocr.space/parse/image", {
         method: "POST",
         headers: {
-          // form-data 会自动生成合适的 Content-Type（包含 boundary）
           ...formData.getHeaders(),
           "User-Agent": "ocr-online-function",
         },
@@ -91,26 +85,26 @@ module.exports = async (req, res) => {
 
       const json = await response.json();
 
-      // ------------------- 日志（方便调试） -------------------
+      // ------------------- 日志（便于调试） -------------------
       console.log("=== OcrSpace raw response ===");
       console.log(JSON.stringify(json, null, 2));
 
       // ------------------- 处理 OcrSpace 错误 -------------------
       if (json.IsErroredOnProcessing) {
         console.error("OcrSpace error:", json.ErrorMessage);
-        res
+        return res
           .status(502)
           .json({ error: "OcrSpace processing error", details: json.ErrorMessage });
-        return;
       }
 
-      // ------------------- 成功返回文字并进行翻译 -------------------
+      // ------------------- 成功返回文字并翻译 -------------------
       const parsedText = (json.ParsedResults?.[0]?.ParsedText || "").trim();
       const chinese = await translateToChinese(parsedText); // ← 翻译步骤
-      res.status(200).json({ original: parsedText, chinese });
+
+      return res.status(200).json({ original: parsedText, chinese });
     } catch (e) {
       console.error("Fetch to OcrSpace failed:", e);
-      res.status(502).json({ error: "Failed to call OcrSpace", details: e.message });
+      return res.status(502).json({ error: "Failed to call OcrSpace", details: e.message });
     }
   });
 };
