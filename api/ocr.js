@@ -35,32 +35,48 @@ function isMetadataOnly(text) {
 }
 
 /**
- * 依次尝试一组 LibreTranslate 公共实例。
- * 第一个成功返回译文即结束；若全部失败抛异常。
+ * 主翻译函数 – 优先使用 Google Translate（官方免费 API），
+ * 若不可用则轮询多个 LibreTranslate 公共实例。
+ * 若全部失败返回 `null`，前端可自行显示 “翻译不可用”。
  */
-async function tryLibreTranslate(originalText) {
+async function translateToChinese(originalText) {
   const fetch = require("node-fetch");
 
-  // ① 环境变量自定义实例（最高优先级）
-  const envUrl = process.env.LIBRE_TRANSLATE_URL;
+  // ---------- 1️⃣ Google Translate（官方免费公共 API，无需 API Key） ----------
+  const googleUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=${encodeURIComponent(originalText)}`;
+  try {
+    const resp = await fetch(googleUrl, {
+      method: "GET",
+      headers: { "Accept": "application/json" },
+      timeout: 30000,
+    });
+    const data = await resp.json();
 
-  // ② 预置几个公开可达的实例（从最常用到备用）
-  const predefined = [
-    "https://libretranslate.com/translate",
-    "https://translate.astian.org/translate",
-    "https://translate.argosopentech.com/translate"
-  ];
+    // 返回结构类似 [[['译文','原文',...],...],...]
+    if (Array.isArray(data) && Array.isArray(data[0])) {
+      const translated = data[0].map(seg => seg[0]).join("");
+      if (translated) return translated;
+    }
+    console.warn("Google Translate 返回非预期结构:", data);
+  } catch (e) {
+    console.warn("Google Translate 调用失败:", e.message);
+  }
 
-  const urls = envUrl ? [envUrl, ...predefined] : predefined;
+  // ---------- 2️⃣ LibreTranslate 备选（多实例轮询） ----------
+  const libreUrls = [
+    process.env.LIBRE_TRANSLATE_URL,                     // 环境变量优先
+    "https://libretranslate.com/translate",               // 常用公共实例
+    "https://translate.astian.org/translate",            // 备用
+    "https://translate.argosopentech.com/translate"      // 再备
+  ].filter(Boolean); // 去掉 undefined / 空字符串
 
-  for (const url of urls) {
+  for (const url of libreUrls) {
     try {
       const resp = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json",
-          // 某些实例在 301/302 时需要 User-Agent 才会跟随
           "User-Agent": "ocr-translate-client"
         },
         body: JSON.stringify({
@@ -69,42 +85,28 @@ async function tryLibreTranslate(originalText) {
           target: "zh",
           format: "text"
         }),
-        timeout: 30000
+        timeout: 30000,
       });
 
       const ct = resp.headers.get("content-type") || "";
       if (!ct.includes("application/json")) {
-        console.warn(`LibreTranslate ${url} 返回非 JSON（Content-Type: ${ct})`);
-        continue; // 尝试下一个实例
+        console.warn(`LibreTranslate ${url} 返回非 JSON (Content-Type: ${ct})`);
+        continue; // 继续尝试下一个实例
       }
 
       const data = await resp.json();
       if (data && (data.translatedText || data.translation)) {
         return data.translatedText || data.translation;
       }
-
       console.warn(`LibreTranslate ${url} 未返回译文字段`, data);
     } catch (e) {
       console.warn(`LibreTranslate ${url} 调用异常:`, e.message);
-      // 继续尝试下一个实例
     }
   }
 
-  // 所有实例均不可用
-  throw new Error("All LibreTranslate instances failed");
-}
-
-/**
- * 主翻译入口——只使用 LibreTranslate。
- * 若所有实例均失效，则返回 `null`（前端可自行显示 “翻译不可用”）。
- */
-async function translateToChinese(originalText) {
-  try {
-    return await tryLibreTranslate(originalText);
-  } catch (e) {
-    console.warn("LibreTranslate 完全不可用，返回 null:", e.message);
-    return null;
-  }
+  // ---------- 全部失败 ----------
+  console.warn("所有翻译服务均不可用，返回 null");
+  return null;
 }
 
 module.exports = async (req, res) => {
@@ -176,7 +178,7 @@ module.exports = async (req, res) => {
       // ------------------- 提取文字并过滤元信息 -------------------
       const rawParsed = (json.ParsedResults?.[0]?.ParsedText || "").trim();
       const isMeta = isMetadataOnly(rawParsed);
-      const parsedText = isMeta ? "" : rawParsed; // 若是元信息则视作空文字
+      const parsedText = isMeta ? "" : rawParsed; // 元信息视作空文字
 
       // ------------------- 翻译（若文字为空直接返回 null） -------------------
       let chinese = null;
@@ -185,7 +187,7 @@ module.exports = async (req, res) => {
       }
 
       res.status(200).json({
-        // 若是元信息，这里返回空字符串，前端可以自行决定是否展示
+        // 若是元信息，这里返回空字符串，前端自行决定是否展示
         original: parsedText,
         chinese
       });
