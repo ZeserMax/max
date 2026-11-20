@@ -35,19 +35,21 @@ function isMetadataOnly(text) {
 }
 
 /**
- * 主翻译函数 – 优先使用 Google Translate（官方免费 API），
- * 若不可用则轮询多个 LibreTranslate 公共实例。
- * 若全部失败返回 `null`，前端可自行显示 “翻译不可用”。
+ * ==================== 翻译入口 ====================
+ * 1️⃣ 首先尝试 **Google Translate**（官方免费公共 API，无需 API Key）。  
+ * 2️⃣ 若 Google 不可用，则轮询 **LibreTranslate** 的公开实例。  
+ *    - 如果您有自己的 LibreTranslate 实例或需要 API Key，可通过环境变量 `LIBRE_TRANSLATE_URL` 与 `LIBRE_TRANSLATE_API_KEY` 配置。  
+ * 3️⃣ 所有服务均不可用时返回 `null`（前端可自行显示 “翻译不可用”）。
  */
 async function translateToChinese(originalText) {
   const fetch = require("node-fetch");
 
-  // ---------- 1️⃣ Google Translate（官方免费公共 API，无需 API Key） ----------
+  // -------- 1️⃣ Google Translate（免费公共 API） --------
   const googleUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q=${encodeURIComponent(originalText)}`;
   try {
     const resp = await fetch(googleUrl, {
       method: "GET",
-      headers: { "Accept": "application/json" },
+      headers: { Accept: "application/json" },
       timeout: 30000,
     });
     const data = await resp.json();
@@ -62,29 +64,38 @@ async function translateToChinese(originalText) {
     console.warn("Google Translate 调用失败:", e.message);
   }
 
-  // ---------- 2️⃣ LibreTranslate 备选（多实例轮询） ----------
+  // -------- 2️⃣ LibreTranslate 轮询（可自行添加 API Key） --------
   const libreUrls = [
     process.env.LIBRE_TRANSLATE_URL,                     // 环境变量优先
     "https://libretranslate.com/translate",               // 常用公共实例
-    "https://translate.astian.org/translate",            // 备用
+    "https://translate.astian.org/translate",            // 备用实例
     "https://translate.argosopentech.com/translate"      // 再备
   ].filter(Boolean); // 去掉 undefined / 空字符串
 
+  // 如果您有自己的 LibreTranslate 实例并且需要 API Key，设置以下环境变量：
+  //   LIBRE_TRANSLATE_API_KEY = <your‑key>
+  const libreApiKey = process.env.LIBRE_TRANSLATE_API_KEY;
+
   for (const url of libreUrls) {
     try {
+      const headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "ocr-translate-client"
+      };
+      // 某些实例（如 libretranslate.com）要求在请求体里带 `api_key`
+      const body = {
+        q: originalText,
+        source: "auto",
+        target: "zh",
+        format: "text"
+      };
+      if (libreApiKey) body.api_key = libreApiKey;
+
       const resp = await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-          "User-Agent": "ocr-translate-client"
-        },
-        body: JSON.stringify({
-          q: originalText,
-          source: "auto",
-          target: "zh",
-          format: "text"
-        }),
+        headers,
+        body: JSON.stringify(body),
         timeout: 30000,
       });
 
@@ -95,20 +106,26 @@ async function translateToChinese(originalText) {
       }
 
       const data = await resp.json();
+
+      // 成功返回字段可能是 `translatedText`（新版）或 `translation`（旧版）
       if (data && (data.translatedText || data.translation)) {
         return data.translatedText || data.translation;
       }
+
       console.warn(`LibreTranslate ${url} 未返回译文字段`, data);
     } catch (e) {
       console.warn(`LibreTranslate ${url} 调用异常:`, e.message);
     }
   }
 
-  // ---------- 全部失败 ----------
+  // -------- 3️⃣ 全部失败 ----------
   console.warn("所有翻译服务均不可用，返回 null");
   return null;
 }
 
+/**
+ * ==================== 主处理函数 ====================
+ */
 module.exports = async (req, res) => {
   // ------------------- 只接受 POST -------------------
   if (req.method !== "POST") {
@@ -144,7 +161,7 @@ module.exports = async (req, res) => {
     // formData.append("language", "chs,eng");
     formData.append("file", fileBuffer, {
       filename: file.originalFilename,
-      contentType: "application/octet-stream"
+      contentType: "application/octet-stream",
     });
 
     const fetch = require("node-fetch");
@@ -154,10 +171,10 @@ module.exports = async (req, res) => {
         headers: {
           // form-data 会自动生成合适的 Content-Type（包含 boundary）
           ...formData.getHeaders(),
-          "User-Agent": "ocr-online-function"
+          "User-Agent": "ocr-online-function",
         },
         body: formData,
-        timeout: 30000
+        timeout: 30000,
       });
 
       const json = await response.json();
@@ -175,21 +192,16 @@ module.exports = async (req, res) => {
         return;
       }
 
-      // ------------------- 提取文字并过滤元信息 -------------------
+      // ------------------- 成功返回文字并翻译 -------------------
       const rawParsed = (json.ParsedResults?.[0]?.ParsedText || "").trim();
       const isMeta = isMetadataOnly(rawParsed);
-      const parsedText = isMeta ? "" : rawParsed; // 元信息视作空文字
-
-      // ------------------- 翻译（若文字为空直接返回 null） -------------------
-      let chinese = null;
-      if (parsedText) {
-        chinese = await translateToChinese(parsedText);
-      }
+      const parsedText = isMeta ? "" : rawParsed;               // 元信息视作空文字
+      const chinese = isMeta ? null : await translateToChinese(parsedText);
 
       res.status(200).json({
         // 若是元信息，这里返回空字符串，前端自行决定是否展示
         original: parsedText,
-        chinese
+        chinese,
       });
     } catch (e) {
       console.error("Fetch to OcrSpace failed:", e);
