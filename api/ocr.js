@@ -17,6 +17,7 @@ const OCR_API_KEY = process.env.OCR_API_KEY || "K8514202439429488957"; // 您的
 function isMetadataOnly(text) {
   if (!text) return true;
   const trimmed = text.trim();
+
   // 开头是 { 或 [ 的可能是 JSON，进一步检查关键字段
   if (/^[\{\[]/.test(trimmed)) {
     const lower = trimmed.toLowerCase();
@@ -28,6 +29,7 @@ function isMetadataOnly(text) {
       return true;
     }
   }
+
   // 有时 OcrSpace 把 JSON 当成字符串返回，出现 \"OCRExitCode\" 等转义形式
   if (/\\\"ocrexitcode\\\"/.test(trimmed)) return true;
   return false;
@@ -37,7 +39,7 @@ function isMetadataOnly(text) {
 async function translateToChinese(originalText) {
   const fetch = require("node-fetch");
 
-  // 默认使用可在大多数云平台访问的 public LibreTranslate 实例
+  // 默认使用可在大多数云平台访问的公共 LibreTranslate 实例
   const defaultLibre = "https://libretranslate.com/translate";
   const libreUrl = process.env.LIBRE_TRANSLATE_URL || defaultLibre;
 
@@ -69,7 +71,7 @@ async function translateToChinese(originalText) {
       }
     }
 
-    // 不是 JSON → 抛异常进入回退流程
+    // 不是 JSON → 抛异常进入回退路径
     throw new Error("LibreTranslate returned non‑JSON");
   } catch (e) {
     console.warn(
@@ -79,7 +81,8 @@ async function translateToChinese(originalText) {
   }
 
   // ---------- 2️⃣ 回退到 MyMemory 免费翻译 ----------
-  // 文档：https://mymemory.translated.net/doc/spec.php
+  // MyMemory API 文档: https://mymemory.translated.net/doc/spec.php
+  // 注意：免费版有频率限制，适合作为兜底方案
   try {
     const myMemoryUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(
       originalText
