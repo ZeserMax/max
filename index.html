@@ -4,41 +4,143 @@
   <meta charset="utf-8">
   <title>🖼️ 在线图片 OCR（云端）</title>
   <style>
-    :root{
-      --font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,sans-serif;
-      --bg-page:#f2f5f9;--bg-card:#fff;--color-primary:#0066cc;--color-primary-hover:#0052a3;
-      --color-muted:#555;--color-success:#28a745;--color-warning:#ffc107;--color-error:#dc3545;
-      --radius:8px;
+    /* ---- 基础变量 ---- */
+    :root {
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      --bg-page: #f2f5f9;
+      --bg-card: #ffffff;
+      --color-primary: #0066cc;
+      --color-primary-hover: #0052a3;
+      --color-muted: #555555;
+      --color-success: #28a745;
+      --color-warning: #ffc107;
+      --color-error: #dc3545;
+      --radius: 8px;
     }
-    body{margin:2rem;font-family:var(--font-sans);background:var(--bg-page);color:#333;line-height:1.5;}
-    .box{max-width:540px;margin:auto;background:var(--bg-card);padding:2rem;border-radius:var(--radius);
-      box-shadow:0 4px 12px rgba(0,0,0,.08);}
-    h1{margin-top:0;font-size:1.8rem;text-align:center;color:var(--color-primary);}
-    p{text-align:center;color:var(--color-muted);margin-bottom:1.5rem;}
-    input[type=file]{display:block;width:100%;margin:1rem 0;}
-    button{width:100%;padding:.6rem 1rem;font-size:1rem;background:var(--color-primary);color:#fff;
-      border:none;border-radius:var(--radius);cursor:pointer;transition:.2s;}
-    button:hover:not(:disabled){background:var(--color-primary-hover);}
-    button:disabled{background:#999;cursor:not-allowed;}
-    #preview{max-width:100%;margin-top:1rem;border:1px solid #ddd;border-radius:var(--radius);}
-    #status{margin-top:.8rem;font-weight:600;color:var(--color-muted);}
-    #status.success{color:var(--color-success);}#status.warning{color:var(--color-warning);}
-    #status.error{color:var(--color-error);}
-    pre{background:#f6f8fa;padding:1rem;border-radius:var(--radius);overflow-x:auto;
-      white-space:pre-wrap;word-break:break-all;margin-top:1rem;}
-    .spinner{display:inline-block;width:1em;height:1em;border:2px solid currentColor;
-      border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite;
-      vertical-align:text-bottom;margin-right:.4em;}
-    @keyframes spin{to{transform:rotate(360deg);}}
-    footer{text-align:center;margin-top:2rem;font-size:.85rem;color:#777;}
+    body {
+      margin: 2rem;
+      font-family: var(--font-sans);
+      background: var(--bg-page);
+      color: #333;
+      line-height: 1.5;
+    }
+    .box {
+      max-width: 540px;
+      margin: 0 auto;
+      background: var(--bg-card);
+      padding: 2rem;
+      border-radius: var(--radius);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+    h1 {
+      margin-top: 0;
+      font-size: 1.8rem;
+      text-align: center;
+      color: var(--color-primary);
+    }
+    p {
+      text-align: center;
+      color: var(--color-muted);
+      margin-bottom: 1.5rem;
+    }
+    input[type=file] {
+      display: block;
+      width: 100%;
+      margin: 1rem 0;
+    }
+    button {
+      width: 100%;
+      padding: 0.6rem 1rem;
+      font-size: 1rem;
+      background: var(--color-primary);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+    button:hover:not(:disabled) {
+      background: var(--color-primary-hover);
+    }
+    button:disabled {
+      background: #999;
+      cursor: not-allowed;
+    }
+    #preview {
+      max-width: 100%;
+      margin-top: 1rem;
+      border: 1px solid #ddd;
+      border-radius: var(--radius);
+    }
+    #status {
+      margin-top: 0.8rem;
+      font-weight: 600;
+      color: var(--color-muted);
+    }
+    #status.success { color: var(--color-success); }
+    #status.warning { color: var(--color-warning); }
+    #status.error   { color: var(--color-error); }
+    pre {
+      background: #f6f8fa;
+      padding: 1rem;
+      border-radius: var(--radius);
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      margin-top: 1rem;
+    }
+    /* 简单的加载动画 */
+    .spinner {
+      display: inline-block;
+      width: 1em;
+      height: 1em;
+      border: 2px solid currentColor;
+      border-right-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      vertical-align: text-bottom;
+      margin-right: 0.4em;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ==== 粘贴区样式 ==== */
+    #pasteArea {
+      border: 2px dashed #bbb;
+      border-radius: var(--radius);
+      padding: 1rem;
+      text-align: center;
+      color: #777;
+      margin-top: 1rem;
+      cursor: pointer;
+    }
+    #pasteArea:hover { border-color: var(--color-primary); color: var(--color-primary); }
+    #pasteArea img {
+      max-width: 100%;
+      margin-top: 0.5rem;
+      border-radius: var(--radius);
+    }
+
+    footer {
+      text-align: center;
+      margin-top: 2rem;
+      font-size: 0.85rem;
+      color: #777;
+    }
   </style>
 </head>
 <body>
   <div class="box">
     <h1>📄 在线图片 OCR（云端）</h1>
-    <p>选择图片 → 自动上传 → 返回文字与译文</p>
+    <p>① 选择图片<br>② 或直接 **粘贴**（Ctrl + V）截图/复制的图片<br>③ 自动上传 → 返回文字结果</p>
 
+    <!-- 1️⃣ 传统文件选择 -->
     <input type="file" id="fileInput" accept="image/*">
+
+    <!-- 2️⃣ 粘贴上传区域 -->
+    <div id="pasteArea" tabindex="0">
+      粘贴图片 (Ctrl + V) 这里或直接点击此区域
+    </div>
+
     <button id="runBtn" disabled>🚀 开始识别</button>
 
     <img id="preview" src="" alt="图片预览（自动）" hidden>
@@ -56,14 +158,51 @@
     const status      = document.getElementById('status');
     const result      = document.getElementById('result');
     const translation = document.getElementById('translation');
-    let selectedFile = null;
+    const pasteArea   = document.getElementById('pasteArea');
 
-    // ---------- 文件选择 ----------
+    let selectedFile = null;   // 保存最终要上传的 File 对象
+
+    // -------------------------------------------------
+    // ① 处理文件选择（原有逻辑）
+    // -------------------------------------------------
     fileInput.addEventListener('change', () => {
       const file = fileInput.files[0];
-      if (!file) { runBtn.disabled = true; preview.hidden = true; return; }
+      handleNewFile(file);
+    });
 
-      // OcrSpace 免费版 1 MB 限制
+    // -------------------------------------------------
+    // ② 处理粘贴（核心新增功能）
+    // -------------------------------------------------
+    // 让粘贴区能够获得焦点，便于键盘操作
+    pasteArea.addEventListener('click', () => pasteArea.focus());
+
+    pasteArea.addEventListener('paste', (e) => {
+      const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.indexOf('image') === 0) {
+          const file = item.getAsFile();
+          // 直接使用粘贴得到的文件对象
+          handleNewFile(file);
+          // 停止遍历，已经找到图片
+          break;
+        }
+      }
+    });
+
+    /**
+     * 统一处理「新文件」的函数（文件选择或粘贴均会调用）
+     * - 校验大小（OcrSpace 免费版限制 1 MB）
+     * - 更新预览、按钮状态、状态文字
+     */
+    function handleNewFile(file) {
+      if (!file) {
+        runBtn.disabled = true;
+        preview.hidden = true;
+        return;
+      }
+
+      // 1 MB 限制（OcrSpace 免费配额）
       if (file.size > 1 * 1024 * 1024) {
         status.textContent = '⚠️ 图片太大（>1 MB），请压缩后重试';
         status.className = 'warning';
@@ -80,10 +219,11 @@
       status.textContent = '';
       status.className = '';
       result.textContent = '';
-      translation.textContent = '';
-    });
+    }
 
-    // ---------- OCR 请求 ----------
+    // -------------------------------------------------
+    // ③ 发起 OCR 请求（保持原有逻辑，仅使用 selectedFile）
+    // -------------------------------------------------
     runBtn.addEventListener('click', async () => {
       if (!selectedFile) return;
       runBtn.disabled = true;
@@ -94,21 +234,19 @@
       form.append('file', selectedFile);
 
       try {
-        const resp = await fetch('/api/ocr', {method:'POST', body:form});
+        const resp = await fetch('/api/ocr', { method: 'POST', body: form });
         const data = await resp.json();
 
         if (!resp.ok) {
           status.textContent = `⚠️ OCR 错误: ${data.error || '未知错误'}`;
           status.className = 'warning';
           result.textContent = data.details ? `细节: ${JSON.stringify(data.details)}` : '';
-          translation.textContent = '';
           return;
         }
 
-        // ===== 原文 =====
         result.textContent = data.original || '(未检测到文字)';
 
-        // ===== 译文 =====
+        // 如果后端返回了译文（当前简化版返回 null），这里仍然保留展示逻辑
         if (data.chinese) {
           translation.textContent = data.chinese;
           translation.style.color = 'var(--color-primary)';
@@ -117,7 +255,6 @@
           translation.style.color = '#888';
         }
 
-        // 状态信息（这里依赖原文是否返回）
         status.textContent = data.original ? '✅ OCR 完成' : '⚠️ OCR 完成，但未检测到文字';
         status.className = data.original ? 'success' : 'warning';
       } catch (e) {
