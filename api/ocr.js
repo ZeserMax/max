@@ -1,16 +1,19 @@
 // api/ocr.js – OcrSpace 调用（使用 form-data，已去掉 language 参数）
 // 放在项目根目录的 `api` 文件夹下，`server.js` 会把 POST /api/ocr 请求转发到这里
 
-require('dotenv').config();                     // 加载 .env 中的环境变量
+// ------- 已移除对 dotenv 的运行时依赖 ---------
+// 生产环境会通过平台的 **Secrets / Environment Variables** 注入 OCR_API_KEY 等变量
+// 如需本地调试，可自行在终端使用 `node -r dotenv/config server.js` 加载 .env
+
 const OCR_API_KEY = process.env.OCR_API_KEY || "K8514202439429488957";
 
 /**
  * 使用免费开源的 LibreTranslate 将文字翻译成中文。
  * - 默认使用公共实例 https://libretranslate.de/translate
- * - 如需自建实例，请在 .env 中设置 LIBRE_TRANSLATE_URL
+ * - 如需自建实例，请在部署平台的环境变量中设置 LIBRE_TRANSLATE_URL
  *
  * @param {string} originalText 需要翻译的原始文字
- * @returns {Promise<string|null>} 中文译文，或出错时返回 null
+ * @returns {Promise<string|null>} 中文译文，或在出错时返回 null
  */
 async function translateToChinese(originalText) {
   const libreUrl = process.env.LIBRE_TRANSLATE_URL || "https://libretranslate.de/translate";
@@ -64,8 +67,7 @@ module.exports = async (req, res) => {
     const FormData = require("form-data");
     const formData = new FormData();
     formData.append("apikey", OCR_API_KEY);
-    // 已删除 language 参数 → OcrSpace 将使用自动语言检测 (auto)
-    // formData.append("language", "chs,eng");
+    // language 参数已删除 → OcrSpace 将自动检测语言
     formData.append("file", fileBuffer, {
       filename: file.originalFilename,
       contentType: "application/octet-stream",
@@ -76,6 +78,7 @@ module.exports = async (req, res) => {
       const response = await fetch("https://api.ocr.space/parse/image", {
         method: "POST",
         headers: {
+          // form-data 会自动生成合适的 Content-Type（包含 boundary）
           ...formData.getHeaders(),
           "User-Agent": "ocr-online-function",
         },
@@ -85,7 +88,7 @@ module.exports = async (req, res) => {
 
       const json = await response.json();
 
-      // ------------------- 日志（便于调试） -------------------
+      // ------------------- 调试日志（可在生产中关闭） -------------------
       console.log("=== OcrSpace raw response ===");
       console.log(JSON.stringify(json, null, 2));
 
@@ -97,10 +100,9 @@ module.exports = async (req, res) => {
           .json({ error: "OcrSpace processing error", details: json.ErrorMessage });
       }
 
-      // ------------------- 成功返回文字并翻译 -------------------
+      // ------------------- 成功返回文字并进行翻译 -------------------
       const parsedText = (json.ParsedResults?.[0]?.ParsedText || "").trim();
-      const chinese = await translateToChinese(parsedText); // ← 翻译步骤
-
+      const chinese = await translateToChinese(parsedText);
       return res.status(200).json({ original: parsedText, chinese });
     } catch (e) {
       console.error("Fetch to OcrSpace failed:", e);
